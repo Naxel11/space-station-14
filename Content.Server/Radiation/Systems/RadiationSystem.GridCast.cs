@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using Content.Server.Radiation.Components;
@@ -10,7 +9,6 @@ using JetBrains.Annotations;
 using Robust.Shared.Collections;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Threading;
-using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
 namespace Content.Server.Radiation.Systems
