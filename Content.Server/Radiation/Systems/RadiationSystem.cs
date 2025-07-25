@@ -5,6 +5,7 @@ using Content.Shared.Stacks;
 using Robust.Shared.Configuration;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Components;
+using Robust.Shared.Physics;
 using Robust.Shared.Threading;
 
 namespace Content.Server.Radiation.Systems;
@@ -23,6 +24,10 @@ public sealed partial class RadiationSystem : EntitySystem
     private EntityQuery<MapGridComponent> _gridQuery;
     private EntityQuery<StackComponent> _stackQuery;
 
+    private readonly DynamicTree<EntityUid> _sourceTree = new(static (in EntityUid _) => default, EqualityComparer<EntityUid>.Default);
+    private readonly Dictionary<EntityUid, SourceData> _sourceDataMap = new();
+    private readonly List<EntityUid> _activeReceivers = new();
+
     private float _accumulator;
     private List<SourceData> _sources = new();
 
@@ -31,6 +36,16 @@ public sealed partial class RadiationSystem : EntitySystem
         base.Initialize();
         SubscribeCvars();
         InitRadBlocking();
+
+        // Подписки на события для ИСТОЧНИКОВ
+        SubscribeLocalEvent<RadiationSourceComponent, ComponentInit>(OnSourceInit);
+        SubscribeLocalEvent<RadiationSourceComponent, ComponentShutdown>(OnSourceShutdown);
+        SubscribeLocalEvent<RadiationSourceComponent, MoveEvent>(OnSourceMove);
+        SubscribeLocalEvent<RadiationSourceComponent, StackCountChangedEvent>(OnSourceStackChanged);
+
+        // Подписки на события для ПРИЕМНИКОВ
+        SubscribeLocalEvent<RadiationReceiverComponent, ComponentInit>(OnReceiverInit);
+        SubscribeLocalEvent<RadiationReceiverComponent, ComponentShutdown>(OnReceiverShutdown);
 
         _blockerQuery = GetEntityQuery<RadiationBlockingContainerComponent>();
         _resistanceQuery = GetEntityQuery<RadiationGridResistanceComponent>();
