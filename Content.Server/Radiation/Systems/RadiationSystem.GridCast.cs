@@ -20,8 +20,7 @@ namespace Content.Server.Radiation.Systems
             float Intensity,
             float Slope,
             float MaxRange,
-            Entity<RadiationSourceComponent, TransformComponent> Entity,
-            Vector2 WorldPosition)
+            Entity<RadiationSourceComponent, TransformComponent> Entity)
         {
             public EntityUid Uid => Entity.Owner;
             public TransformComponent Transform => Entity.Comp2;
@@ -29,42 +28,44 @@ namespace Content.Server.Radiation.Systems
 
         private void UpdateGridcast()
         {
-            // should we save debug information into rays?
-            // if there is no debug sessions connected - just ignore it
             var debug = _debugSessions.Count > 0;
             var stopwatch = new Robust.Shared.Timing.Stopwatch();
             stopwatch.Start();
 
-            _sources.Clear();
-            _sources.EnsureCapacity(Count<RadiationSourceComponent>());
-            var sourcesQuery = EntityQueryEnumerator<RadiationSourceComponent, TransformComponent>();
-            while (sourcesQuery.MoveNext(out var uid, out var source, out var xform))
+            // --- НАЧАЛО ИЗМЕНЕНИЙ: Добавлены таймеры ---
+            var stopwatch2 = new Robust.Shared.Timing.Stopwatch();
+            stopwatch2.Start();
+
+            // 1. Подготовка данных источников из постоянной коллекции
+            var sources = new List<SourceData>(_activeSources.Count);
+            
+            foreach (var (uid, (source, xform)) in _activeSources)
             {
                 if (!source.Enabled)
                     continue;
 
-                var worldPos = _transform.GetWorldPosition(xform);
-                // Intensity is scaled by stack size.
                 var intensity = source.Intensity * _stack.GetCount(uid);
                 intensity = GetAdjustedRadiationIntensity(uid, intensity);
 
                 var maxRange = source.Slope > 1e-6f ? intensity / source.Slope : float.MaxValue;
-                _sources.Add(new SourceData(intensity, source.Slope, maxRange, (uid, source, xform), worldPos));
+                sources.Add(new SourceData(intensity, source.Slope, maxRange, (uid, source, xform)));
             }
+            var timer1 = stopwatch2.Elapsed;
+            stopwatch2.Restart();
 
-            var destinationsQuery = EntityQueryEnumerator<RadiationReceiverComponent, TransformComponent>();
-            var destinations = new ValueList<(EntityUid Uid, TransformComponent Xform)>();
-            while (destinationsQuery.MoveNext(out var uid, out _, out var xform))
-            {
-                destinations.Add((uid, xform));
-            }
+            // 2. Подготовка данных приемников из постоянной коллекции
+            var destinations = new ValueList<(EntityUid Uid, TransformComponent Xform)>(_activeReceivers);
+            var timer2 = stopwatch2.Elapsed;
+            stopwatch2.Restart();
 
-            if (destinations.Count == 0 || _sources.Count == 0)
+            if (destinations.Count == 0 || sources.Count == 0)
             {
-                UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, _sources.Count, destinations.Count, null);
+                UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, sources.Count, destinations.Count, null);
                 RaiseLocalEvent(new RadiationSystemUpdatedEvent());
                 return;
             }
+            var timer3 = stopwatch2.Elapsed;
+            stopwatch2.Restart();
 
             var results = new float[destinations.Count];
             var debugRays = debug ? new ConcurrentBag<DebugRadiationRay>() : null;
@@ -72,15 +73,19 @@ namespace Content.Server.Radiation.Systems
             var job = new RadiationJob
             {
                 System = this,
-                Sources = _sources,
+                Sources = sources,
                 Destinations = destinations,
                 Results = results,
                 DebugRays = debugRays,
                 Debug = debug
             };
 
+            // 4. Выполнение параллельной задачи
             _parallel.ProcessNow(job, destinations.Count);
+            var timer4 = stopwatch2.Elapsed;
+            stopwatch2.Restart();
 
+            // 5. Применение результатов
             for (var i = 0; i < destinations.Count; i++)
             {
                 var (uid, _) = destinations[i];
@@ -93,10 +98,14 @@ namespace Content.Server.Radiation.Systems
                 if (rads > 0)
                     IrradiateEntity(uid, rads, GridcastUpdateRate);
             }
+            var timer5 = stopwatch2.Elapsed;
+            stopwatch2.Restart();
 
-            UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, _sources.Count, destinations.Count, debugRays?.ToList());
-
+            UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, sources.Count, destinations.Count, debugRays?.ToList());
             RaiseLocalEvent(new RadiationSystemUpdatedEvent());
+
+            Logger.Info(timer1.TotalMilliseconds + " " + timer2.TotalMilliseconds + " " + timer3.TotalMilliseconds + " " + timer4.TotalMilliseconds + " " + timer5.TotalMilliseconds);
+            // --- КОНЕЦ ИЗМЕНЕНИЙ ---
         }
 
         private RadiationRay? Irradiate(SourceData source,
@@ -107,7 +116,8 @@ namespace Content.Server.Radiation.Systems
             List<Entity<MapGridComponent>> gridList)
         {
             var mapId = destTrs.MapID;
-            var dist = (destWorld - source.WorldPosition).Length();
+            var sourceWorldPos = _transform.GetWorldPosition(source.Transform);
+            var dist = (destWorld - sourceWorldPos).Length();
 
             if (dist > source.MaxRange)
                 return null;
@@ -117,9 +127,8 @@ namespace Content.Server.Radiation.Systems
             if (rads < MinIntensity)
                 return null;
 
-            var ray = new RadiationRay(mapId, source.Entity, source.WorldPosition, destUid, destWorld, rads);
-
-            var box = Box2.FromTwoPoints(source.WorldPosition, destWorld);
+            var ray = new RadiationRay(mapId, source.Entity, sourceWorldPos, destUid, destWorld, rads);
+            var box = Box2.FromTwoPoints(sourceWorldPos, destWorld);
             gridList.Clear();
             _mapManager.FindGridsIntersecting(mapId, box, ref gridList, true);
 
@@ -155,11 +164,11 @@ namespace Content.Server.Radiation.Systems
                 ? destTrs.LocalPosition
                 : Vector2.Transform(ray.Destination, grid.Comp2.InvLocalMatrix);
 
-        Vector2i sourceGrid = new(
+            Vector2i sourceGrid = new(
             (int)Math.Floor(srcLocal.X / grid.Comp1.TileSize),
             (int)Math.Floor(srcLocal.Y / grid.Comp1.TileSize));
 
-        Vector2i destGrid = new(
+            Vector2i destGrid = new(
             (int)Math.Floor(dstLocal.X / grid.Comp1.TileSize),
             (int)Math.Floor(dstLocal.Y / grid.Comp1.TileSize));
 
@@ -247,7 +256,9 @@ namespace Content.Server.Radiation.Systems
                     if (source.Transform.MapID != destMapId)
                         continue;
 
-                    var delta = source.WorldPosition - destWorld;
+                    var sourceWorldPos = System._transform.GetWorldPosition(source.Transform);
+
+                    var delta = sourceWorldPos - destWorld;
                     if (delta.LengthSquared() > source.MaxRange * source.MaxRange)
                         continue;
 
