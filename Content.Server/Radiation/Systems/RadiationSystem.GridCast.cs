@@ -34,10 +34,16 @@ namespace Content.Server.Radiation.Systems
             var debug = _debugSessions.Count > 0;
             var stopwatch = new Robust.Shared.Timing.Stopwatch();
             stopwatch.Start();
+            var stopwatch2 = new Robust.Shared.Timing.Stopwatch();
+            stopwatch2.Start();
 
             _sources.Clear();
             _sources.EnsureCapacity(Count<RadiationSourceComponent>());
             var sourcesQuery = EntityQueryEnumerator<RadiationSourceComponent, TransformComponent>();
+
+            var timer1 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
+
             while (sourcesQuery.MoveNext(out var uid, out var source, out var xform))
             {
                 if (!source.Enabled)
@@ -52,12 +58,22 @@ namespace Content.Server.Radiation.Systems
                 _sources.Add(new SourceData(intensity, source.Slope, maxRange, (uid, source, xform), worldPos));
             }
 
+            var timer2 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
+
             var destinationsQuery = EntityQueryEnumerator<RadiationReceiverComponent, TransformComponent>();
+
+            var timer3 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
+
             var destinations = new ValueList<(EntityUid Uid, TransformComponent Xform)>();
             while (destinationsQuery.MoveNext(out var uid, out _, out var xform))
             {
                 destinations.Add((uid, xform));
             }
+
+            var timer4 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
 
             if (destinations.Count == 0 || _sources.Count == 0)
             {
@@ -65,6 +81,9 @@ namespace Content.Server.Radiation.Systems
                 RaiseLocalEvent(new RadiationSystemUpdatedEvent());
                 return;
             }
+
+            var timer5 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
 
             var results = new float[destinations.Count];
             var debugRays = debug ? new ConcurrentBag<DebugRadiationRay>() : null;
@@ -81,6 +100,9 @@ namespace Content.Server.Radiation.Systems
 
             _parallel.ProcessNow(job, destinations.Count);
 
+            var timer6 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
+
             for (var i = 0; i < destinations.Count; i++)
             {
                 var (uid, _) = destinations[i];
@@ -94,9 +116,23 @@ namespace Content.Server.Radiation.Systems
                     IrradiateEntity(uid, rads, GridcastUpdateRate);
             }
 
+            var timer7 = stopwatch2.Elapsed.TotalMilliseconds;
+            stopwatch2.Restart();
+
             UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, _sources.Count, destinations.Count, debugRays?.ToList());
 
             RaiseLocalEvent(new RadiationSystemUpdatedEvent());
+
+            var timer8 = stopwatch2.Elapsed.TotalMilliseconds;
+
+            Logger.Info(timer1 + " " +
+                timer2 + " " +
+                timer3 + " " +
+                timer4 + " " +
+                timer5 + " " +
+                timer6 + " " +
+                timer7 + " " +
+                timer8 + " ");
         }
 
         private RadiationRay? Irradiate(SourceData source,
