@@ -1,12 +1,9 @@
 using Content.Server.Radiation.Components;
-using Content.Shared.Physics;
 using Content.Shared.Radiation.Components;
 using Content.Shared.Radiation.Events;
 using Content.Shared.Stacks;
 using Robust.Shared.Configuration;
-using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
-using Robust.Shared.Map.Components;
 using Robust.Shared.Physics;
 using Robust.Shared.Threading;
 using System.Numerics;
@@ -42,18 +39,14 @@ public sealed partial class RadiationSystem : EntitySystem
         _resistanceQuery = GetEntityQuery<RadiationGridResistanceComponent>();
         _stackQuery = GetEntityQuery<StackComponent>();
 
-        // ИСТОЧНИКИ
         SubscribeLocalEvent<RadiationSourceComponent, ComponentInit>(OnSourceInit);
         SubscribeLocalEvent<RadiationSourceComponent, ComponentShutdown>(OnSourceShutdown);
         SubscribeLocalEvent<RadiationSourceComponent, MoveEvent>(OnSourceMove);
         SubscribeLocalEvent<RadiationSourceComponent, StackCountChangedEvent>(OnSourceStackChanged);
-
-        // ПРИЕМНИКИ
+        
         SubscribeLocalEvent<RadiationReceiverComponent, ComponentInit>(OnReceiverInit);
         SubscribeLocalEvent<RadiationReceiverComponent, ComponentShutdown>(OnReceiverShutdown);
     }
-
-    // --- Обработчики событий ---
 
     private void OnSourceInit(EntityUid uid, RadiationSourceComponent component, ComponentInit args)
     {
@@ -70,12 +63,10 @@ public sealed partial class RadiationSystem : EntitySystem
 
     private void OnSourceMove(EntityUid uid, RadiationSourceComponent component, ref MoveEvent args)
     {
-        // ИСПРАВЛЕНИЕ: Используем .Position вместо .LocalPosition
         if (args.NewPosition.EntityId == args.OldPosition.EntityId &&
             args.NewPosition.Position.EqualsApprox(args.OldPosition.Position))
             return;
 
-        // ИСПРАВЛЕНИЕ: Получаем TransformComponent напрямую из события
         UpdateSource(uid, component, args.Component);
     }
 
@@ -94,7 +85,6 @@ public sealed partial class RadiationSystem : EntitySystem
         _activeReceivers.Remove(uid);
     }
 
-    // --- Вспомогательный метод для обновления источника ---
     private void UpdateSource(EntityUid uid, RadiationSourceComponent component, TransformComponent? xform = null)
     {
         if (!Resolve(uid, ref xform))
@@ -133,8 +123,6 @@ public sealed partial class RadiationSystem : EntitySystem
             _sourceTree.Add(uid, aabb);
         }
     }
-
-    // --- Основной цикл и API ---
 
     public override void Update(float frameTime)
     {

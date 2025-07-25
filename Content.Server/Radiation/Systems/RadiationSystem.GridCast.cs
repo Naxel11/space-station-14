@@ -3,12 +3,9 @@ using System.Linq;
 using System.Numerics;
 using Content.Server.Radiation.Components;
 using Content.Server.Radiation.Events;
-using Content.Shared.Physics;
 using Content.Shared.Radiation.Components;
 using Content.Shared.Radiation.Systems;
 using JetBrains.Annotations;
-using Robust.Shared.Collections;
-using Robust.Shared.GameObjects;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Physics;
 using Robust.Shared.Threading;
@@ -16,6 +13,7 @@ using Robust.Shared.Utility;
 
 namespace Content.Server.Radiation.Systems
 {
+    // main algorithm that fire radiation rays to target
     public partial class RadiationSystem
     {
         private readonly record struct SourceData(
@@ -38,8 +36,6 @@ namespace Content.Server.Radiation.Systems
             var sourcesCount = _sourceDataMap.Count;
             if (_activeReceivers.Count == 0 || sourcesCount == 0)
             {
-                // Все еще важно вызывать это событие, т.к. другие системы могут на него полагаться
-                // для сброса состояний (например, счетчик Гейгера должен обнулиться).
                 RaiseLocalEvent(new RadiationSystemUpdatedEvent());
                 return;
             }
@@ -73,7 +69,6 @@ namespace Content.Server.Radiation.Systems
                 }
             }
 
-            // Вызываем тяжелые методы отладки только когда это действительно нужно.
             if (debug)
             {
                 UpdateGridcastDebugOverlay(stopwatch.Elapsed.TotalMilliseconds, sourcesCount, _activeReceivers.Count, debugRays!.ToList());
